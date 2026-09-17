@@ -1,0 +1,25 @@
+services:
+  api:
+    build: .
+    image: lockbox-verify-api
+    # API_PORT overrides the host-side port; the container always listens
+    # on 8000. Default `docker compose up` runs this service only.
+    ports:
+      - "${API_PORT:-8000}:8000"
+    restart: unless-stopped
+
+  # One-shot acceptance run; kept out of the default profile so `up` runs
+  # only the API. Execute with:
+  #   docker compose run --rm verify
+  verify:
+    image: lockbox-verify-api
+    build: .
+    entrypoint: ["sh", "scripts/acceptance-entrypoint.sh"]
+    command: ["-q"]
+    environment:
+      BASE_URL: http://api:8000
+      HEALTH_URL: http://api:8000/health
+    depends_on:
+      - api
+    profiles:
+      - acceptance
