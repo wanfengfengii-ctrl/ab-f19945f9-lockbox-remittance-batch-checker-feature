@@ -1,6 +1,6 @@
 [project]
 name = "lockbox-verify"
-version = "1.0.0"
+version = "1.1.0"
 description = "Byte-exact verification API for separator-free lockbox remittance batches"
 requires-python = ">=3.12"
 

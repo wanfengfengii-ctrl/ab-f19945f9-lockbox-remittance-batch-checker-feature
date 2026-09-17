@@ -130,6 +130,38 @@ D0002INV2······000000002000
 
 另有 `GET /health` 返回 `{"status":"ok"}` 供存活与验收等待使用。
 
+## 断点续传上传（可续传会话）
+
+专线中断时不必整批重传：接入方**自选上传号** `upload_id`，把同一批报文分块追加，
+收满后触发核验。会话状态（已收字节、声明总长、状态、固化响应）与数据一起**原子写入本地
+SQLite**（单表单行、单事务提交），崩溃不会只落一半。
+
+- `PUT /uploads/{upload_id}` — 写入一个原始分块（`application/octet-stream`）
+  - 请求头 `Upload-Offset`（必填）：本分块在整体中的起始偏移；**首块必须为 0**
+  - 请求头 `Upload-Length`（首块必填，≤ 1 MiB）：整批总字节数；后续分块可省略，
+    若携带必须与首次声明一致
+  - 成功 `200`：响应头 `Upload-Offset` 与 JSON 体给出**下一偏移**，客户端据此续传
+  - **幂等重试**：整块完全落在已保存区间且字节一致 → `200`，偏移不变、数据不动
+  - 冲突 `409`：越界（偏移超过当前末尾或超出声明总长）、跨越末尾、总数变化、
+    内容冲突、会话已完成 —— 响应头 `Upload-Offset` 与 JSON 体给出**当前已提交偏移**，
+    已存数据一字节不改
+  - 缺头/非法头 `400`；声明总长或单块超过 1 MiB `413`
+- `POST /uploads/{upload_id}/complete` — 触发核验
+  - 仅当**已收字节 == 声明总长**时，会话在同一事务内从 `receiving` 原子转为
+    `completed`：调用与 `/verify` 相同的解析器，并把完整响应**固化**进 SQLite
+  - 重复完成返回**同一份**固化响应（字节一致）；完成后的写入一律 `409`
+  - 未收满 `409`（带当前偏移）；未知 `upload_id` `404`
+
+并发规则：同一 `upload_id` 的写入与完成各自包裹在 SQLite `IMMEDIATE` 事务里，
+按**事务提交顺序**判定 —— 竞争中恰有一次合法变更生效，其余请求依据提交后的偏移或状态
+得到确定反馈（重试者拿到幂等成功，冲突者拿到 409 与当前偏移，完成者拿到同一份固化响应）。
+
+收满后的核验语义与 `/verify` 完全一致：合法批次 `ACCEPT` 带明细，非法批次整批
+`REJECT` 带最早错误，汇总不符带声明值/实算值/带符号差异。
+
+会话存储位置由环境变量 `UPLOADS_DB_PATH` 指定，默认为工作目录下的 `uploads.db`
+（Docker 容器内为 `/app/uploads.db`）。
+
 ## 用 Docker Compose 运行
 
 默认 `up` **只运行 API**：
@@ -194,8 +226,9 @@ BASE_URL=http://127.0.0.1:8000 pytest -q
 app/
   parser.py     # 逐字节解析 + 核验（纯函数，无固定响应）
   schemas.py    # 响应模型
-  main.py       # FastAPI、1 MiB 流式上限、序列化
-tests/          # pytest：解析规则单测 + 接口端到端（in-process 与 BASE_URL 黑盒两用）
+  store.py      # 可续传会话：SQLite 单表，数据与元数据同事务原子写入
+  main.py       # FastAPI、1 MiB 流式上限、/verify 与 /uploads 会话、序列化
+tests/          # pytest：解析规则单测 + 接口端到端 + 续传会话（in-process 与 BASE_URL 黑盒两用）
 scripts/
   acceptance-entrypoint.sh   # verify 一次性服务入口：等健康 → pytest
 Dockerfile

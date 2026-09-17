@@ -34,3 +34,12 @@ class VerificationResponse(BaseModel):
     details: list[DetailOut] = []
     differences: dict[str, int] | None = None
     error: ErrorOut | None = None
+
+
+class UploadStateOut(BaseModel):
+    """Committed session state after a successful chunk write."""
+
+    upload_id: str
+    offset: int
+    upload_length: int
+    status: str
