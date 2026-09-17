@@ -7,3 +7,7 @@ __pycache__/
 *.log
 .DS_Store
 .git/
+uploads.db
+uploads.db-journal
+uploads.db-wal
+uploads.db-shm

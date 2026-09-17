@@ -25,3 +25,9 @@ dist/
 .DS_Store
 .idea/
 .vscode/
+
+# Local resumable-upload session store
+uploads.db
+uploads.db-journal
+uploads.db-wal
+uploads.db-shm
